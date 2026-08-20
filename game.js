@@ -134,6 +134,7 @@ class Ship {
     this.shootCooldown = 0;
     this.dead          = false;
     this.boostTime     = 0;
+    this.shieldTime    = 0;
   }
 
   update(dt) {
@@ -141,6 +142,7 @@ class Ship {
     if (this.invincible    > 0) this.invincible    -= dt;
     if (this.shootCooldown > 0) this.shootCooldown -= dt;
     if (this.boostTime     > 0) this.boostTime     -= dt;
+    if (this.shieldTime    > 0) this.shieldTime    -= dt;
 
     const ROT   = 3.5;   // rad/s
     const THRUST = this.boostTime > 0 ? 520 : 260;  // px/s²
@@ -183,6 +185,21 @@ class Ship {
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.arc(0, 0, 22, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Escudo temporal (estrella fugaz)
+    if (this.shieldTime > 0) {
+      const sa = Math.min(1, this.shieldTime / 6) * 0.35;
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      ctx.fillStyle = `rgba(125, 249, 255, ${sa.toFixed(2)})`;
+      ctx.strokeStyle = `rgba(125, 249, 255, ${(sa * 1.6).toFixed(2)})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, 18, 0, Math.PI * 2);
+      ctx.fill();
       ctx.stroke();
       ctx.restore();
     }
@@ -291,8 +308,71 @@ class PowerUp {
   }
 }
 
+// ── Estrella fugaz (escudo temporal) ──────────────────────────────────────────
+class ShootingStar {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    const angle = rand(0, Math.PI * 2);
+    const speed = rand(150, 200);
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed;
+    this.life = 7;
+    this.ttl  = this.life;
+    this.radius = 10;
+    this.rot = 0;
+    this.rotSpeed = rand(-4, 4);
+    this.px = x;
+    this.py = y;
+    this.dead = false;
+  }
+
+  update(dt) {
+    this.px = this.x;
+    this.py = this.y;
+    this.x = wrap(this.x + this.vx * dt, W);
+    this.y = wrap(this.y + this.vy * dt, H);
+    this.rot += this.rotSpeed * dt;
+    this.ttl -= dt;
+    if (this.ttl <= 0) this.dead = true;
+  }
+
+  draw() {
+    const alpha = Math.max(0, this.ttl / this.life);
+    // Estela corta
+    ctx.strokeStyle = `rgba(125, 249, 255, ${(alpha * 0.6).toFixed(2)})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(this.px, this.py);
+    ctx.lineTo(this.x, this.y);
+    ctx.stroke();
+
+    // Estrella de 5 puntas
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.rot);
+    ctx.strokeStyle = `rgba(125, 249, 255, ${alpha.toFixed(2)})`;
+    ctx.fillStyle   = `rgba(125, 249, 255, ${(alpha * 0.4).toFixed(2)})`;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    const R1 = 10, R2 = 4;
+    for (let i = 0; i < 10; i++) {
+      const r = i % 2 === 0 ? R1 : R2;
+      const a = (i / 10) * Math.PI * 2 - Math.PI / 2;
+      const px = Math.cos(a) * r;
+      const py = Math.sin(a) * r;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
 // ── Estado del juego ──────────────────────────────────────────────────────────
-let ship, bullets, asteroids, particles, powerups;
+let ship, bullets, asteroids, particles, powerups, shootingStars;
 let score, lives, level;
 let state;      // 'playing' | 'dead' | 'gameover'
 let deadTimer;
@@ -315,6 +395,7 @@ function initGame() {
   asteroids = [];
   particles = [];
   powerups  = [];
+  shootingStars = [];
   score  = 0;
   lives  = 3;
   level  = 1;
@@ -327,6 +408,7 @@ function nextLevel() {
   bullets   = [];
   particles = [];
   powerups  = [];
+  shootingStars = [];
   ship.reset();
   spawnAsteroids(3 + level);
 }
@@ -375,10 +457,12 @@ function update(dt) {
   asteroids.forEach(a => a.update(dt));
   particles.forEach(p => p.update(dt));
   powerups.forEach(p => p.update(dt));
+  shootingStars.forEach(s => s.update(dt));
 
   bullets   = bullets.filter(b => !b.dead);
   particles = particles.filter(p => !p.dead);
   powerups  = powerups.filter(p => !p.dead);
+  shootingStars = shootingStars.filter(s => !s.dead);
 
   // Bala vs asteroide
   const newAsteroids = [];
@@ -392,6 +476,8 @@ function update(dt) {
         newAsteroids.push(...a.split());
         // 10% de probabilidad de soltar power-up de velocidad
         if (Math.random() < 0.1) powerups.push(new PowerUp(a.x, a.y));
+        // 1.5% de probabilidad de soltar estrella fugaz (escudo temporal)
+        if (Math.random() < 0.015) shootingStars.push(new ShootingStar(a.x, a.y));
       }
     }
   }
@@ -399,7 +485,7 @@ function update(dt) {
   bullets   = bullets.filter(b => !b.dead);
 
   // Nave vs asteroide
-  if (ship.invincible <= 0) {
+  if (ship.invincible <= 0 && ship.shieldTime <= 0) {
     for (const a of asteroids) {
       if (dist(ship, a) < ship.radius + a.radius * 0.82) {
         killShip();
@@ -414,6 +500,16 @@ function update(dt) {
       if (!p.dead && dist(ship, p) < ship.radius + p.radius) {
         p.dead = true;
         ship.boostTime = 5;
+      }
+    }
+  }
+
+  // Nave vs estrella fugaz (escudo temporal)
+  if (!ship.dead) {
+    for (const s of shootingStars) {
+      if (!s.dead && dist(ship, s) < ship.radius + s.radius) {
+        s.dead = true;
+        ship.shieldTime = 6;
       }
     }
   }
@@ -468,6 +564,22 @@ function drawHUD() {
     ctx.font = '11px monospace';
     ctx.fillText('VEL', BAR_X + BAR_W + 6, BAR_Y + BAR_H);
   }
+
+  // Barra de escudo (estrella fugaz)
+  if (ship.shieldTime > 0) {
+    const BAR_W = 80;
+    const BAR_H = 6;
+    const BAR_X = 14;
+    const BAR_Y = 48;
+    const frac  = Math.max(0, ship.shieldTime / 6);
+    ctx.fillStyle = 'rgba(125,249,255,0.25)';
+    ctx.fillRect(BAR_X, BAR_Y, BAR_W, BAR_H);
+    ctx.fillStyle = '#7df9ff';
+    ctx.fillRect(BAR_X, BAR_Y, BAR_W * frac, BAR_H);
+    ctx.fillStyle = '#7df9ff';
+    ctx.font = '11px monospace';
+    ctx.fillText('ESC', BAR_X + BAR_W + 6, BAR_Y + BAR_H);
+  }
 }
 
 function drawOverlay(title, sub) {
@@ -488,6 +600,7 @@ function draw() {
   asteroids.forEach(a => a.draw());
   bullets.forEach(b => b.draw());
   powerups.forEach(p => p.draw());
+  shootingStars.forEach(s => s.draw());
   ship.draw();
 
   drawHUD();
