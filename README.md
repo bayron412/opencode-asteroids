@@ -29,6 +29,7 @@ Luego visita `http://localhost:3000`.
 | `←` `→`   | Rotar nave |
 | `↑`       | Propulsar  |
 | `Espacio` | Disparar   |
+| `Shift`   | Escudo (energía recargable) |
 
 ## Puntuación
 
@@ -43,3 +44,5 @@ Luego visita `http://localhost:3000`.
 - 3 vidas con invencibilidad temporal al reaparecer (parpadeo)
 - Asteroides se parten en fragmentos más pequeños al ser destruidos
 - Partículas de explosión al destruir asteroides
+- Escudo activo (Shift) con barra de energía recargable que bloquea proyectiles enemigos y colisiones
+- UFOs enemigas que aparecen periódicamente y disparan proyectiles hostiles
