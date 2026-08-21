@@ -183,6 +183,7 @@ class Ship {
     this.shieldTime    = 0;
     this.shieldEnergy  = 100;
     this.shieldActive  = false;
+    this.tripleTime    = 0;
   }
 
   update(dt) {
@@ -191,6 +192,7 @@ class Ship {
     if (this.shootCooldown > 0) this.shootCooldown -= dt;
     if (this.boostTime     > 0) this.boostTime     -= dt;
     if (this.shieldTime    > 0) this.shieldTime    -= dt;
+    if (this.tripleTime    > 0) this.tripleTime    -= dt;
 
     // Escudo activo: drena energía; suelto o sin energía -> off. Si no activo, regenera.
     this.shieldActive = !!keys['ShiftLeft'] && this.shieldEnergy > 0 && !this.dead;
@@ -222,6 +224,15 @@ class Ship {
     const NOSE = 21;
     const ox = this.x + Math.cos(this.angle) * NOSE;
     const oy = this.y + Math.sin(this.angle) * NOSE;
+    if (this.tripleTime > 0) {
+      const nx = -Math.sin(this.angle), ny = Math.cos(this.angle);
+      const SP = 8;
+      return [
+        new Bullet(ox + nx * SP, oy + ny * SP, this.angle),
+        new Bullet(ox, oy, this.angle),
+        new Bullet(ox - nx * SP, oy - ny * SP, this.angle),
+      ];
+    }
     return [new Bullet(ox, oy, this.angle)];
   }
 
@@ -268,6 +279,18 @@ class Ship {
       ctx.beginPath();
       ctx.arc(0, 0, 18, 0, Math.PI * 2);
       ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Triple shot activo: aura magenta
+    if (this.tripleTime > 0) {
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      ctx.strokeStyle = 'rgba(255, 68, 221, 0.55)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, 22, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
@@ -437,6 +460,45 @@ class UFO {
   }
 }
 
+// ── Triple Shot (power-up de disparo triple) ──────────────────────────────────
+class TriplePowerUp {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    const angle = rand(0, Math.PI * 2);
+    const speed = rand(20, 45);
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed;
+    this.rot = 0;
+    this.rotSpeed = rand(-1.5, 1.5);
+    this.radius = 12;
+    this.dead = false;
+  }
+
+  update(dt) {
+    this.x = wrap(this.x + this.vx * dt, W);
+    this.y = wrap(this.y + this.vy * dt, H);
+    this.rot += this.rotSpeed * dt;
+  }
+
+  draw() {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.rot);
+    ctx.strokeStyle = '#ff44dd';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    // Tres líneas paralelas verticales
+    for (const dx of [-6, 0, 6]) {
+      ctx.beginPath();
+      ctx.moveTo(dx, -8);
+      ctx.lineTo(dx,  8);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
 // ── Estrella fugaz (escudo temporal) ──────────────────────────────────────────
 class ShootingStar {
   constructor(x, y) {
@@ -503,6 +565,7 @@ class ShootingStar {
 // ── Estado del juego ──────────────────────────────────────────────────────────
 let ship, bullets, asteroids, particles, powerups, shootingStars;
 let ufos, enemyBullets, ufoTimer;
+let triplePowerups;
 let score, lives, level;
 let state;      // 'menu' | 'playing' | 'dead' | 'gameover'
 let deadTimer;
@@ -543,6 +606,7 @@ function initGame() {
   ufos          = [];
   enemyBullets  = [];
   ufoTimer      = 10;
+  triplePowerups = [];
   score  = 0;
   lives  = 3;
   level  = 1;
@@ -559,6 +623,7 @@ function nextLevel() {
   ufos          = [];
   enemyBullets  = [];
   ufoTimer      = 10;
+  triplePowerups = [];
   ship.reset();
   spawnAsteroids(3 + level);
 }
@@ -621,6 +686,7 @@ function update(dt) {
   shootingStars.forEach(s => s.update(dt));
   ufos.forEach(u => u.update(dt));
   enemyBullets.forEach(eb => eb.update(dt));
+  triplePowerups.forEach(t => t.update(dt));
 
   bullets   = bullets.filter(b => !b.dead);
   particles = particles.filter(p => !p.dead);
@@ -646,6 +712,7 @@ function update(dt) {
       u.resetFire();
     }
   }
+  triplePowerups = triplePowerups.filter(t => !t.dead);
 
   // Bala vs asteroide
   const newAsteroids = [];
@@ -661,6 +728,8 @@ function update(dt) {
         if (Math.random() < 0.1) powerups.push(new PowerUp(a.x, a.y));
         // 1.5% de probabilidad de soltar estrella fugaz (escudo temporal)
         if (Math.random() < 0.015) shootingStars.push(new ShootingStar(a.x, a.y));
+        // 5% de probabilidad de soltar triple shot
+        if (Math.random() < 0.05) triplePowerups.push(new TriplePowerUp(a.x, a.y));
       }
     }
   }
@@ -736,6 +805,16 @@ function update(dt) {
       if (!s.dead && dist(ship, s) < ship.radius + s.radius) {
         s.dead = true;
         ship.shieldTime = 6;
+      }
+    }
+  }
+
+  // Nave vs triple shot
+  if (!ship.dead) {
+    for (const t of triplePowerups) {
+      if (!t.dead && dist(ship, t) < ship.radius + t.radius) {
+        t.dead = true;
+        ship.tripleTime = 5;
       }
     }
   }
@@ -830,6 +909,22 @@ function drawHUD() {
     ctx.font = '11px monospace';
     ctx.fillText('ESCUDO (Shift)', BAR_X + BAR_W + 6, BAR_Y + BAR_H);
   }
+
+  // Barra de triple shot
+  if (ship.tripleTime > 0) {
+    const BAR_W = 80;
+    const BAR_H = 6;
+    const BAR_X = 14;
+    const BAR_Y = 72;
+    const frac  = Math.max(0, ship.tripleTime / 5);
+    ctx.fillStyle = 'rgba(255,68,221,0.25)';
+    ctx.fillRect(BAR_X, BAR_Y, BAR_W, BAR_H);
+    ctx.fillStyle = '#ff44dd';
+    ctx.fillRect(BAR_X, BAR_Y, BAR_W * frac, BAR_H);
+    ctx.fillStyle = '#ff44dd';
+    ctx.font = '11px monospace';
+    ctx.fillText('TRP', BAR_X + BAR_W + 6, BAR_Y + BAR_H);
+  }
 }
 
 function drawOverlay(title, sub) {
@@ -913,6 +1008,7 @@ function draw() {
   powerups.forEach(p => p.draw());
   shootingStars.forEach(s => s.draw());
   ufos.forEach(u => u.draw());
+  triplePowerups.forEach(t => t.draw());
   ship.draw();
 
   drawHUD();
