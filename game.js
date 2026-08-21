@@ -12,7 +12,7 @@ const justPressed = {};
 window.addEventListener('keydown', e => {
   justPressed[e.code] = !keys[e.code];
   keys[e.code] = true;
-  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code))
+  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft'].includes(e.code))
     e.preventDefault();
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
@@ -42,6 +42,11 @@ const SKINS = [
 let currentSkin = parseInt(localStorage.getItem('asteroids.skin'), 10);
 if (!(currentSkin >= 0 && currentSkin < SKINS.length)) currentSkin = 0;
 
+// ── Escudo (constantes) ───────────────────────────────────────────────────────
+const SHIELD_MAX    = 100;   // energía máxima
+const SHIELD_DRAIN  = 45;    // energía/s mientras está activo
+const SHIELD_REGEN  = 18;    // energía/s mientras está inactivo
+
 // ── Bullet ────────────────────────────────────────────────────────────────────
 class Bullet {
   constructor(x, y, angle) {
@@ -64,6 +69,34 @@ class Bullet {
 
   draw() {
     ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// ── EnemyBullet (UFO) ─────────────────────────────────────────────────────────
+class EnemyBullet {
+  constructor(x, y, angle) {
+    this.x = x;
+    this.y = y;
+    const SPEED = 300;
+    this.vx = Math.cos(angle) * SPEED;
+    this.vy = Math.sin(angle) * SPEED;
+    this.ttl  = 2;
+    this.radius = 3;
+    this.dead = false;
+  }
+
+  update(dt) {
+    this.x = wrap(this.x + this.vx * dt, W);
+    this.y = wrap(this.y + this.vy * dt, H);
+    this.ttl -= dt;
+    if (this.ttl <= 0) this.dead = true;
+  }
+
+  draw() {
+    ctx.fillStyle = '#ff4040';
     ctx.beginPath();
     ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
     ctx.fill();
@@ -148,6 +181,8 @@ class Ship {
     this.dead          = false;
     this.boostTime     = 0;
     this.shieldTime    = 0;
+    this.shieldEnergy  = 100;
+    this.shieldActive  = false;
   }
 
   update(dt) {
@@ -156,6 +191,11 @@ class Ship {
     if (this.shootCooldown > 0) this.shootCooldown -= dt;
     if (this.boostTime     > 0) this.boostTime     -= dt;
     if (this.shieldTime    > 0) this.shieldTime    -= dt;
+
+    // Escudo activo: drena energía; suelto o sin energía -> off. Si no activo, regenera.
+    this.shieldActive = !!keys['ShiftLeft'] && this.shieldEnergy > 0 && !this.dead;
+    if (this.shieldActive) this.shieldEnergy = Math.max(0, this.shieldEnergy - SHIELD_DRAIN * dt);
+    else                   this.shieldEnergy = Math.min(SHIELD_MAX, this.shieldEnergy + SHIELD_REGEN * dt);
 
     const ROT   = 3.5;   // rad/s
     const THRUST = this.boostTime > 0 ? 520 : 260;  // px/s²
@@ -198,6 +238,21 @@ class Ship {
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.arc(0, 0, 22, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Escudo activo (tecla Shift): anillo pulsante cyan
+    if (this.shieldActive) {
+      const pulse = 18 + Math.sin(performance.now() / 60) * 2;
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      ctx.strokeStyle = 'rgba(125, 249, 255, 0.9)';
+      ctx.lineWidth = 2.5;
+      ctx.shadowColor = '#7df9ff';
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      ctx.arc(0, 0, pulse, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
@@ -327,6 +382,61 @@ class PowerUp {
   }
 }
 
+// ── UFO (nave enemiga que dispara) ────────────────────────────────────────────
+const UFO_SPEED     = 100;
+const UFO_RADIUS    = 14;
+const UFO_FIRE_TIME = 1.5;
+const UFO_SCORE     = 200;
+
+class UFO {
+  constructor() {
+    // Entra desde un borde horizontal
+    const fromLeft = Math.random() < 0.5;
+    this.x  = fromLeft ? -UFO_RADIUS : W + UFO_RADIUS;
+    this.y  = rand(60, H - 60);
+    this.vx = (fromLeft ? 1 : -1) * UFO_SPEED;
+    this.vy = 0;
+    this.radius    = UFO_RADIUS;
+    this.fireTimer = UFO_FIRE_TIME;
+    this.dead      = false;
+  }
+
+  update(dt) {
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    // No usa wrap: si sale completamente del campo, muere
+    if (this.x < -UFO_RADIUS - 5 || this.x > W + UFO_RADIUS + 5) this.dead = true;
+    this.fireTimer -= dt;
+  }
+
+  readyToFire() { return this.fireTimer <= 0 && !this.dead; }
+  resetFire()   { this.fireTimer = UFO_FIRE_TIME; }
+
+  shotAngle(target) {
+    const a = Math.atan2(target.y - this.y, target.x - this.x);
+    return a + rand(-0.25, 0.25);   // spread ±0.25 rad (~14°)
+  }
+
+  draw() {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.strokeStyle = '#ff66cc';
+    ctx.fillStyle   = 'rgba(255,102,204,0.15)';
+    ctx.lineWidth   = 1.5;
+    // Platillo
+    ctx.beginPath();
+    ctx.ellipse(0, 2, 14, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    // Cúpula
+    ctx.beginPath();
+    ctx.arc(0, 0, 6, Math.PI, 0);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
 // ── Estrella fugaz (escudo temporal) ──────────────────────────────────────────
 class ShootingStar {
   constructor(x, y) {
@@ -392,6 +502,7 @@ class ShootingStar {
 
 // ── Estado del juego ──────────────────────────────────────────────────────────
 let ship, bullets, asteroids, particles, powerups, shootingStars;
+let ufos, enemyBullets, ufoTimer;
 let score, lives, level;
 let state;      // 'menu' | 'playing' | 'dead' | 'gameover'
 let deadTimer;
@@ -429,6 +540,9 @@ function initGame() {
   particles = [];
   powerups  = [];
   shootingStars = [];
+  ufos          = [];
+  enemyBullets  = [];
+  ufoTimer      = 10;
   score  = 0;
   lives  = 3;
   level  = 1;
@@ -442,6 +556,9 @@ function nextLevel() {
   particles = [];
   powerups  = [];
   shootingStars = [];
+  ufos          = [];
+  enemyBullets  = [];
+  ufoTimer      = 10;
   ship.reset();
   spawnAsteroids(3 + level);
 }
@@ -502,11 +619,33 @@ function update(dt) {
   particles.forEach(p => p.update(dt));
   powerups.forEach(p => p.update(dt));
   shootingStars.forEach(s => s.update(dt));
+  ufos.forEach(u => u.update(dt));
+  enemyBullets.forEach(eb => eb.update(dt));
 
   bullets   = bullets.filter(b => !b.dead);
   particles = particles.filter(p => !p.dead);
   powerups  = powerups.filter(p => !p.dead);
   shootingStars = shootingStars.filter(s => !s.dead);
+  ufos          = ufos.filter(u => !u.dead);
+  enemyBullets  = enemyBullets.filter(eb => !eb.dead);
+
+  // Spawn de UFO: aparece periódicamente, más frecuente en niveles altos
+  if (ufos.length === 0) {
+    ufoTimer -= dt;
+    if (ufoTimer <= 0) {
+      ufos.push(new UFO());
+      ufoTimer = Math.max(6, 16 - level * 1.5) + rand(-2, 2);
+    }
+  }
+
+  // UFO dispara a la nave
+  for (const u of ufos) {
+    if (u.readyToFire() && !ship.dead) {
+      const a = u.shotAngle(ship);
+      enemyBullets.push(new EnemyBullet(u.x, u.y, a));
+      u.resetFire();
+    }
+  }
 
   // Bala vs asteroide
   const newAsteroids = [];
@@ -528,10 +667,53 @@ function update(dt) {
   asteroids = asteroids.filter(a => !a.dead).concat(newAsteroids);
   bullets   = bullets.filter(b => !b.dead);
 
-  // Nave vs asteroide
-  if (ship.invincible <= 0 && ship.shieldTime <= 0) {
+  // Bala de nave vs UFO
+  for (const b of bullets) {
+    for (const u of ufos) {
+      if (!u.dead && !b.dead && dist(b, u) < u.radius) {
+        b.dead = true;
+        u.dead = true;
+        score += UFO_SCORE;
+        explode(u.x, u.y, 12);
+      }
+    }
+  }
+  bullets = bullets.filter(b => !b.dead);
+  ufos    = ufos.filter(u => !u.dead);
+
+  // Proyectil enemigo vs escudo activo / nave
+  for (const eb of enemyBullets) {
+    if (eb.dead) continue;
+    if (dist(eb, ship) < 18) {
+      if (ship.shieldActive) {
+        eb.dead = true;
+        ship.shieldEnergy = Math.min(SHIELD_MAX, ship.shieldEnergy + 3); // reembolso por bloqueo
+        explode(eb.x, eb.y, 3);
+      } else if (ship.invincible <= 0 && ship.shieldTime <= 0 && !ship.dead) {
+        eb.dead = true;
+        killShip();
+        break;
+      }
+    }
+  }
+  enemyBullets = enemyBullets.filter(eb => !eb.dead);
+
+  // Nave vs asteroide (el escudo activo también bloquea asteroides)
+  if (!ship.shieldActive && ship.invincible <= 0 && ship.shieldTime <= 0) {
     for (const a of asteroids) {
       if (dist(ship, a) < ship.radius + a.radius * 0.82) {
+        killShip();
+        break;
+      }
+    }
+  }
+
+  // Nave vs UFO (el escudo activo bloquea la colisión)
+  if (!ship.shieldActive && ship.invincible <= 0 && ship.shieldTime <= 0 && !ship.dead) {
+    for (const u of ufos) {
+      if (dist(ship, u) < ship.radius + u.radius) {
+        u.dead = true;
+        explode(u.x, u.y, 10);
         killShip();
         break;
       }
@@ -629,6 +811,25 @@ function drawHUD() {
     ctx.font = '11px monospace';
     ctx.fillText('ESC', BAR_X + BAR_W + 6, BAR_Y + BAR_H);
   }
+
+  // Barra de energía del escudo activo (Shift)
+  {
+    const BAR_W = 100;
+    const BAR_H = 6;
+    const BAR_X = 14;
+    const BAR_Y = 60;
+    const frac  = Math.max(0, ship.shieldEnergy / SHIELD_MAX);
+    ctx.fillStyle = 'rgba(125,249,255,0.15)';
+    ctx.fillRect(BAR_X, BAR_Y, BAR_W, BAR_H);
+    ctx.fillStyle = ship.shieldActive ? '#ffffff' : '#7df9ff';
+    ctx.fillRect(BAR_X, BAR_Y, BAR_W * frac, BAR_H);
+    ctx.strokeStyle = 'rgba(125,249,255,0.5)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(BAR_X - 0.5, BAR_Y - 0.5, BAR_W + 1, BAR_H + 1);
+    ctx.fillStyle = '#7df9ff';
+    ctx.font = '11px monospace';
+    ctx.fillText('ESCUDO (Shift)', BAR_X + BAR_W + 6, BAR_Y + BAR_H);
+  }
 }
 
 function drawOverlay(title, sub) {
@@ -708,8 +909,10 @@ function draw() {
   particles.forEach(p => p.draw());
   asteroids.forEach(a => a.draw());
   bullets.forEach(b => b.draw());
+  enemyBullets.forEach(eb => eb.draw());
   powerups.forEach(p => p.draw());
   shootingStars.forEach(s => s.draw());
+  ufos.forEach(u => u.draw());
   ship.draw();
 
   drawHUD();
