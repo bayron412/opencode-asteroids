@@ -11,7 +11,8 @@ Open `index.html` directly, or `npx serve .` then visit `http://localhost:3000`.
 - Entire game lives in `game.js` (single file, ES6+, `'use strict'`).
 - `index.html` only hosts a fixed `<canvas id="canvas" width="800" height="600">` and loads `game.js`.
 - All game state is module-level `let`/`const` in `game.js` (`ship`, `bullets`, `asteroids`, `particles`, `score`, `lives`, `level`, `state`).
-- `state` machine: `'playing' | 'dead' | 'gameover'`. `initGame()` resets everything; `nextLevel()` clears bullets/particles and respawns.
+- `state` machine: `'menu' | 'playing' | 'dead' | 'gameover'`. `initMenu()` arranca el menú de skins (estado inicial); `initGame()` reinicia todo y pasa a `'playing'`; `nextLevel()` clears bullets/particles and respawns.
+- Skins: array `SKINS` (game.js:33) define color de trazo, grosor, glow y color de llama por skin. `currentSkin` se persiste en `localStorage` (`asteroids.skin`). El menú cicla con `←`/`→` y confirma con `Espacio`/`Enter`. `Ship.draw()` y `drawLifeIcon()` leen `SKINS[currentSkin]`.
 - Space is toroidal: every moving object wraps via `wrap(v, max)`.
 - Loop is `requestAnimationFrame` with `dt` capped at `0.05` s (game.js:415).
 
