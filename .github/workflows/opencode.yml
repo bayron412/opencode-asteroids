@@ -28,6 +28,6 @@ jobs:
       - name: Run opencode
         uses: anomalyco/opencode/github@latest
         env:
-          OPENCODE_API_KEY: ${{ secrets.OPEN_CODE_API_KEY }}
+          OPEN_CODE_API_KEY: ${{ secrets.OPEN_CODE_API_KEY }}
         with:
           model: opencode-go/glm-5.2
