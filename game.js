@@ -37,6 +37,7 @@ const SKINS = [
   { name: 'ESMERALDA', stroke: '#39ff14', lineWidth: 2,   glow: 12, thrust: 'rgba(57, 255, 20, 0.9)' },
   { name: 'MAGENTA',   stroke: '#ff39c5', lineWidth: 2,   glow: 12, thrust: 'rgba(255, 57, 197, 0.9)' },
   { name: 'FUEGO',     stroke: '#ff6a00', lineWidth: 1.5, glow: 10, thrust: 'rgba(255, 200, 0, 1)' },
+  { name: 'MORADA',    stroke: '#b026ff', lineWidth: 1.5, glow: 12, thrust: 'rgba(176, 38, 255, 0.9)', scale: 2, scoreMultiplier: 2 },
 ];
 
 let currentSkin = parseInt(localStorage.getItem('asteroids.skin'), 10);
@@ -174,7 +175,7 @@ class Ship {
     this.angle  = -Math.PI / 2;
     this.vx     = 0;
     this.vy     = 0;
-    this.radius = 12;
+    this.radius = 12 * (SKINS[currentSkin].scale || 1);
     this.thrusting     = false;
     this.invincible    = 3;
     this.shootCooldown = 0;
@@ -221,7 +222,7 @@ class Ship {
   tryShoot() {
     if (this.shootCooldown > 0 || this.dead) return [];
     this.shootCooldown = 0.2;
-    const NOSE = 21;
+    const NOSE = 21 * (SKINS[currentSkin].scale || 1);
     const ox = this.x + Math.cos(this.angle) * NOSE;
     const oy = this.y + Math.sin(this.angle) * NOSE;
     if (this.tripleTime > 0) {
@@ -241,6 +242,9 @@ class Ship {
     // Parpadeo durante invencibilidad de reaparición
     if (this.invincible > 0 && Math.floor(this.invincible * 8) % 2 === 0) return;
 
+    const skin = SKINS[currentSkin];
+    const sc   = skin.scale || 1;
+
     // Aura durante boost de velocidad
     if (this.boostTime > 0) {
       ctx.save();
@@ -248,14 +252,14 @@ class Ship {
       ctx.strokeStyle = 'rgba(0, 220, 255, 0.55)';
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(0, 0, 22, 0, Math.PI * 2);
+      ctx.arc(0, 0, 22 * sc, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
 
     // Escudo activo (tecla Shift): anillo pulsante cyan
     if (this.shieldActive) {
-      const pulse = 18 + Math.sin(performance.now() / 60) * 2;
+      const pulse = (18 + Math.sin(performance.now() / 60) * 2) * sc;
       ctx.save();
       ctx.translate(this.x, this.y);
       ctx.strokeStyle = 'rgba(125, 249, 255, 0.9)';
@@ -277,7 +281,7 @@ class Ship {
       ctx.strokeStyle = `rgba(125, 249, 255, ${(sa * 1.6).toFixed(2)})`;
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(0, 0, 18, 0, Math.PI * 2);
+      ctx.arc(0, 0, 18 * sc, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
       ctx.restore();
@@ -290,7 +294,7 @@ class Ship {
       ctx.strokeStyle = 'rgba(255, 68, 221, 0.55)';
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(0, 0, 22, 0, Math.PI * 2);
+      ctx.arc(0, 0, 22 * sc, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
@@ -298,7 +302,7 @@ class Ship {
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
-    const skin = SKINS[currentSkin];
+    ctx.scale(sc, sc);
     ctx.strokeStyle = skin.stroke;
     ctx.lineWidth   = skin.lineWidth;
     ctx.lineJoin    = 'round';
@@ -721,7 +725,7 @@ function update(dt) {
       if (!a.dead && !b.dead && dist(b, a) < a.radius) {
         b.dead = true;
         a.dead = true;
-        score += POINTS[a.size];
+        score += POINTS[a.size] * (SKINS[currentSkin].scoreMultiplier || 1);
         explode(a.x, a.y, a.size * 5);
         newAsteroids.push(...a.split());
         // 10% de probabilidad de soltar power-up de velocidad
@@ -742,7 +746,7 @@ function update(dt) {
       if (!u.dead && !b.dead && dist(b, u) < u.radius) {
         b.dead = true;
         u.dead = true;
-        score += UFO_SCORE;
+        score += UFO_SCORE * (SKINS[currentSkin].scoreMultiplier || 1);
         explode(u.x, u.y, 12);
       }
     }
@@ -753,7 +757,7 @@ function update(dt) {
   // Proyectil enemigo vs escudo activo / nave
   for (const eb of enemyBullets) {
     if (eb.dead) continue;
-    if (dist(eb, ship) < 18) {
+    if (dist(eb, ship) < ship.radius + 6) {
       if (ship.shieldActive) {
         eb.dead = true;
         ship.shieldEnergy = Math.min(SHIELD_MAX, ship.shieldEnergy + 3); // reembolso por bloqueo
@@ -941,7 +945,7 @@ function drawSkinPreview(x, y, skin, sel) {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(-Math.PI / 2);
-  const s = sel ? 1.15 : 1;
+  const s = (sel ? 1.15 : 1) * (skin.scale || 1);
   ctx.scale(s, s);
   ctx.strokeStyle = skin.stroke;
   ctx.lineWidth   = skin.lineWidth;
@@ -981,6 +985,14 @@ function drawMenu() {
     ctx.font = sel ? 'bold 20px monospace' : '18px monospace';
     ctx.fillStyle = sel ? SKINS[i].stroke : 'rgba(255,255,255,0.45)';
     ctx.fillText(SKINS[i].name, W / 2 - 90, y + 6);
+
+    const mult = SKINS[i].scoreMultiplier || 1;
+    if (mult > 1) {
+      const nameW = ctx.measureText(SKINS[i].name).width;
+      ctx.font = '12px monospace';
+      ctx.fillStyle = sel ? SKINS[i].stroke : 'rgba(255,255,255,0.4)';
+      ctx.fillText(`×${mult} PUNTOS`, W / 2 - 90 + nameW + 10, y + 6);
+    }
 
     if (sel) {
       ctx.textAlign = 'right';
