@@ -37,10 +37,15 @@ const SKINS = [
   { name: 'ESMERALDA', stroke: '#39ff14', lineWidth: 2,   glow: 12, thrust: 'rgba(57, 255, 20, 0.9)' },
   { name: 'MAGENTA',   stroke: '#ff39c5', lineWidth: 2,   glow: 12, thrust: 'rgba(255, 57, 197, 0.9)' },
   { name: 'FUEGO',     stroke: '#ff6a00', lineWidth: 1.5, glow: 10, thrust: 'rgba(255, 200, 0, 1)' },
+  { name: 'MORADO',    stroke: '#9d4edd', lineWidth: 2,   glow: 12, thrust: 'rgba(157, 78, 221, 0.9)', scale: 2, scoreMultiplier: 2 },
 ];
 
 let currentSkin = parseInt(localStorage.getItem('asteroids.skin'), 10);
 if (!(currentSkin >= 0 && currentSkin < SKINS.length)) currentSkin = 0;
+
+// Helpers de skin: scale (tamaño visual/colisión) y scoreMultiplier (puntos)
+const skinScale   = () => SKINS[currentSkin].scale || 1;
+const scoreMult   = () => SKINS[currentSkin].scoreMultiplier || 1;
 
 // ── Escudo (constantes) ───────────────────────────────────────────────────────
 const SHIELD_MAX    = 100;   // energía máxima
@@ -174,7 +179,7 @@ class Ship {
     this.angle  = -Math.PI / 2;
     this.vx     = 0;
     this.vy     = 0;
-    this.radius = 12;
+    this.radius = 12 * skinScale();
     this.thrusting     = false;
     this.invincible    = 3;
     this.shootCooldown = 0;
@@ -221,12 +226,12 @@ class Ship {
   tryShoot() {
     if (this.shootCooldown > 0 || this.dead) return [];
     this.shootCooldown = 0.2;
-    const NOSE = 21;
+    const NOSE = 21 * skinScale();
     const ox = this.x + Math.cos(this.angle) * NOSE;
     const oy = this.y + Math.sin(this.angle) * NOSE;
     if (this.tripleTime > 0) {
       const nx = -Math.sin(this.angle), ny = Math.cos(this.angle);
-      const SP = 8;
+      const SP = 8 * skinScale();
       return [
         new Bullet(ox + nx * SP, oy + ny * SP, this.angle),
         new Bullet(ox, oy, this.angle),
@@ -241,6 +246,9 @@ class Ship {
     // Parpadeo durante invencibilidad de reaparición
     if (this.invincible > 0 && Math.floor(this.invincible * 8) % 2 === 0) return;
 
+    const skin = SKINS[currentSkin];
+    const s = skin.scale || 1;
+
     // Aura durante boost de velocidad
     if (this.boostTime > 0) {
       ctx.save();
@@ -248,14 +256,14 @@ class Ship {
       ctx.strokeStyle = 'rgba(0, 220, 255, 0.55)';
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(0, 0, 22, 0, Math.PI * 2);
+      ctx.arc(0, 0, 22 * s, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
 
     // Escudo activo (tecla Shift): anillo pulsante cyan
     if (this.shieldActive) {
-      const pulse = 18 + Math.sin(performance.now() / 60) * 2;
+      const pulse = (18 + Math.sin(performance.now() / 60) * 2) * s;
       ctx.save();
       ctx.translate(this.x, this.y);
       ctx.strokeStyle = 'rgba(125, 249, 255, 0.9)';
@@ -277,7 +285,7 @@ class Ship {
       ctx.strokeStyle = `rgba(125, 249, 255, ${(sa * 1.6).toFixed(2)})`;
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(0, 0, 18, 0, Math.PI * 2);
+      ctx.arc(0, 0, 18 * s, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
       ctx.restore();
@@ -290,7 +298,7 @@ class Ship {
       ctx.strokeStyle = 'rgba(255, 68, 221, 0.55)';
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(0, 0, 22, 0, Math.PI * 2);
+      ctx.arc(0, 0, 22 * s, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
@@ -298,7 +306,7 @@ class Ship {
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
-    const skin = SKINS[currentSkin];
+    ctx.scale(s, s);
     ctx.strokeStyle = skin.stroke;
     ctx.lineWidth   = skin.lineWidth;
     ctx.lineJoin    = 'round';
@@ -721,7 +729,7 @@ function update(dt) {
       if (!a.dead && !b.dead && dist(b, a) < a.radius) {
         b.dead = true;
         a.dead = true;
-        score += POINTS[a.size];
+        score += POINTS[a.size] * scoreMult();
         explode(a.x, a.y, a.size * 5);
         newAsteroids.push(...a.split());
         // 10% de probabilidad de soltar power-up de velocidad
@@ -742,7 +750,7 @@ function update(dt) {
       if (!u.dead && !b.dead && dist(b, u) < u.radius) {
         b.dead = true;
         u.dead = true;
-        score += UFO_SCORE;
+        score += UFO_SCORE * scoreMult();
         explode(u.x, u.y, 12);
       }
     }
@@ -826,9 +834,11 @@ function update(dt) {
 // ── Draw ──────────────────────────────────────────────────────────────────────
 function drawLifeIcon(x, y) {
   const skin = SKINS[currentSkin];
+  const s = skin.scale || 1;
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(-Math.PI / 2);
+  ctx.scale(s, s);
   ctx.strokeStyle = skin.stroke;
   ctx.lineWidth   = 1.2;
   ctx.lineJoin    = 'round';
@@ -857,7 +867,7 @@ function drawHUD() {
   ctx.fillText(`NIVEL ${level}`, W / 2, 26);
 
   for (let i = 0; i < lives; i++)
-    drawLifeIcon(W - 16 - i * 22, 18);
+    drawLifeIcon(W - 16 - i * (22 * skinScale()), 18);
 
   // Barra de power-up de velocidad
   if (ship.boostTime > 0) {
@@ -941,7 +951,7 @@ function drawSkinPreview(x, y, skin, sel) {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(-Math.PI / 2);
-  const s = sel ? 1.15 : 1;
+  const s = (sel ? 1.15 : 1) * (skin.scale || 1);
   ctx.scale(s, s);
   ctx.strokeStyle = skin.stroke;
   ctx.lineWidth   = skin.lineWidth;
